@@ -23,7 +23,12 @@ Thumbs.db
 # Application specific
 *.log
 WinToPalette_*.log
-interception/
+# Ignore only the external Interception asset folder at repo root
+/interception/**
+
+# Never ignore application source folder with similar name/casing
+!WinToPalette/Interception/
+!WinToPalette/Interception/**
 
 # Publish
 publish/
