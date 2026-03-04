@@ -24,8 +24,8 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
-  <!-- Copy native interception.dll to output directory -->
-  <ItemGroup>
+  <!-- Copy native interception.dll to output directory when available -->
+  <ItemGroup Condition="Exists('..\interception\interception.dll')">
     <None Include="..\interception\interception.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
