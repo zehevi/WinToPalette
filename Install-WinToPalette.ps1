@@ -146,6 +146,61 @@ function Install-Interception {
     else {
         Write-Warning_ "Interception installer not found. You may need to install it manually."
     }
+    
+    # Also try to locate and copy the interception.dll to the app directory
+    Ensure-InterceptionDll
+}
+
+function Ensure-InterceptionDll {
+    $appDllPath = Join-Path $InstallPath "interception.dll"
+    
+    # Check if DLL already exists in app directory
+    if (Test-Path $appDllPath) {
+        Write-Info "Interception.dll already present in app directory"
+        return
+    }
+    
+    # Search paths where DLL might be in the release
+    $searchPaths = @(
+        # In extracted release under Interception-Driver
+        "$env:TEMP\WinToPalette-extracted\Interception-Driver\library\x64\interception.dll",
+        # In extracted release under original structure
+        "$env:TEMP\WinToPalette-extracted\interception\Interception_extracted\Interception\library\x64\interception.dll",
+        # Recursive search in extracted folder
+        "$env:TEMP\WinToPalette-extracted"
+    )
+    
+    foreach ($searchPath in $searchPaths) {
+        if ($searchPath -like "*\*\*") {
+            # This is a specific file path
+            if (Test-Path $searchPath) {
+                try {
+                    Copy-Item -Path $searchPath -Destination $appDllPath -Force -ErrorAction Stop
+                    Write-Success "Copied interception.dll to app directory"
+                    return
+                }
+                catch {
+                    Write-Warning_ "Could not copy DLL from $searchPath`: $_"
+                }
+            }
+        }
+        else {
+            # This is a directory - search recursively
+            $found = Get-ChildItem -Path $searchPath -Recurse -Filter "interception.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+                try {
+                    Copy-Item -Path $found.FullName -Destination $appDllPath -Force -ErrorAction Stop
+                    Write-Success "Copied interception.dll to app directory"
+                    return
+                }
+                catch {
+                    Write-Warning_ "Could not copy DLL from $($found.FullName)`: $_"
+                }
+            }
+        }
+    }
+    
+    Write-Warning_ "Could not locate interception.dll in release. The driver may not work until it's manually installed."
 }
 
 function Install-Application {
@@ -184,8 +239,9 @@ function Register-Startup {
     $TaskName = "WinToPalette"
     $TaskPath = "\WinToPalette\"
     $CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $WorkingDirectory = $exePath.DirectoryName
     
-    $TaskAction = New-ScheduledTaskAction -Execute $exePath.FullName
+    $TaskAction = New-ScheduledTaskAction -Execute $exePath.FullName -WorkingDirectory $WorkingDirectory
     $TaskTrigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
     $TaskPrincipal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Highest
     $TaskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -336,6 +392,12 @@ function Install-Application-Main {
     Write-Success "Installation complete!"
     Write-Info "WinToPalette is ready. Press Windows key to launch PowerToys Command Palette."
     Write-Warning_ "If this is your first time: reboot for Interception driver to become active."
+    Write-Host ""
+    Write-Host "Troubleshooting:" -ForegroundColor Cyan
+    Write-Host "  • Check Task Scheduler: Open 'Task Scheduler' and verify 'WinToPalette' task exists"
+    Write-Host "  • View logs: Open $env:APPDATA\WinToPalette\ to find application logs"
+    Write-Host "  • Manual test: Run $InstallPath\WinToPalette.exe from Command Prompt to see errors"
+    Write-Host ""
 }
 
 # ============================================================================
