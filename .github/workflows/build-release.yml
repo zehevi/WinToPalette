@@ -1,0 +1,137 @@
+name: Build and Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*'
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build Release (AnyCPU)
+        run: dotnet build WinToPalette.sln -c Release -p:Platform=AnyCPU --no-restore
+
+      - name: Build Release (x64)
+        run: dotnet build WinToPalette.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          $tag = "${{ github.ref }}".Replace("refs/tags/", "")
+          $version = $tag.TrimStart("v")
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Create release directory
+        run: |
+          mkdir release
+          mkdir release/WinToPalette-${{ steps.get_version.outputs.version }}
+
+      - name: Copy files to release directory
+        run: |
+          $releaseDir = "release/WinToPalette-${{ steps.get_version.outputs.version }}"
+          
+          # Copy the built executable and dependencies (use x64 as primary)
+          Copy-Item -Path "WinToPalette/bin/x64/Release/net8.0-windows/*" -Destination "$releaseDir/" -Recurse -Force
+          
+          # Copy platform-specific executables to subdirectories
+          mkdir "$releaseDir/bin/x64" -Force | Out-Null
+          mkdir "$releaseDir/bin/AnyCPU" -Force | Out-Null
+          Copy-Item -Path "WinToPalette/bin/x64/Release/net8.0-windows/WinToPalette.exe" -Destination "$releaseDir/bin/x64/" -Force
+          Copy-Item -Path "WinToPalette/bin/Release/net8.0-windows/WinToPalette.exe" -Destination "$releaseDir/bin/AnyCPU/" -Force
+          
+          # Copy installer scripts to root
+          Copy-Item -Path "Install-WinToPalette.ps1" -Destination "$releaseDir/"
+          Copy-Item -Path "Install-WinToPalette.bat" -Destination "$releaseDir/"
+          Copy-Item -Path "Uninstall-WinToPalette.bat" -Destination "$releaseDir/"
+          
+          # Copy README for reference
+          Copy-Item -Path "README.md" -Destination "$releaseDir/README.md"
+          
+          # Copy interception driver installer if available
+          if (Test-Path "interception/Interception_extracted/Interception/command line installer") {
+            Copy-Item -Path "interception/Interception_extracted/Interception/command line installer" -Destination "$releaseDir/Interception-Driver" -Recurse -Force
+          }
+
+      - name: Create release ZIP
+        run: |
+          Compress-Archive -Path "release/WinToPalette-${{ steps.get_version.outputs.version }}" -DestinationPath "release/WinToPalette-${{ steps.get_version.outputs.version }}.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.tag }}
+          name: WinToPalette ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          body: |
+            ## WinToPalette Release ${{ steps.get_version.outputs.version }}
+            
+            ### Installation
+            
+            **Option 1: Quick Install (Recommended)**
+            1. Extract the downloaded ZIP file
+            2. Double-click `Install-WinToPalette.bat`
+            3. Click "Yes" when prompted for administrator privileges
+            4. Review the installation details and press `y` to proceed
+            5. Reboot your computer (recommended for Interception driver activation)
+            
+            **Option 2: PowerShell Installation**
+            1. Extract the downloaded ZIP file
+            2. Open PowerShell as Administrator
+            3. Navigate to the extracted folder
+            4. Run: `.\Install-WinToPalette.ps1`
+            
+            ### Uninstallation
+            
+            1. Double-click `Uninstall-WinToPalette.bat`
+            2. Click "Yes" when prompted for administrator privileges
+            3. Review what will be removed and press `y` to proceed
+            4. Choose whether to remove log files
+            5. Reboot your computer (recommended)
+            
+            ### Requirements
+            
+            - Windows 11 (Windows 10 may work with modifications)
+            - .NET 8.0 Runtime (installer includes minimal required components)
+            - PowerToys installed (for Command Palette feature)
+            - Administrator privileges
+            
+            ### What's Included
+            
+            - `WinToPalette.exe` - Main application executable
+            - `Install-WinToPalette.bat` - Double-click installer with UAC elevation
+            - `Install-WinToPalette.ps1` - PowerShell installation script
+            - `Uninstall-WinToPalette.bat` - Quick uninstaller
+            - `Interception-Driver/` - Kernel-level keyboard interception driver
+            - Dependencies and runtime files
+            
+            ### Features
+            
+            - ✅ Detects Windows key press at OS level
+            - ✅ Suppresses default Start Menu
+            - ✅ Launches PowerToys Command Palette
+            - ✅ Auto-starts on system boot
+            
+            ### Support
+            
+            For issues or feature requests, please visit: https://github.com/zehevi/WinToPalette
+          files: |
+            ./release/WinToPalette-${{ steps.get_version.outputs.version }}.zip
+            WinToPalette/bin/x64/Release/net8.0-windows/WinToPalette.exe

@@ -1,0 +1,43 @@
+# Build results
+bin/
+obj/
+.vs/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache/options
+.vscode/
+.idea/
+
+# npm dependencies
+node_modules/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Application specific
+*.log
+WinToPalette_*.log
+interception/
+
+# Publish
+publish/
+PublishProfiles/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/*
+!.nuget/NuGet.Config
+
+# Local environment variables
+.env
+.env.local
+
+# Temporary files
+~*
