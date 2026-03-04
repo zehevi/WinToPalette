@@ -22,9 +22,6 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore
 
-      - name: Build Release (AnyCPU)
-        run: dotnet build WinToPalette.sln -c Release -p:Platform=AnyCPU --no-restore
-
       - name: Build Release (x64)
         run: dotnet build WinToPalette.sln -c Release -p:Platform=x64 --no-restore
 
@@ -48,11 +45,9 @@ jobs:
           # Copy the built executable and dependencies (use x64 as primary)
           Copy-Item -Path "WinToPalette/bin/x64/Release/net8.0-windows/*" -Destination "$releaseDir/" -Recurse -Force
           
-          # Copy platform-specific executables to subdirectories
+          # Copy x64 executable to subdirectory
           mkdir "$releaseDir/bin/x64" -Force | Out-Null
-          mkdir "$releaseDir/bin/AnyCPU" -Force | Out-Null
           Copy-Item -Path "WinToPalette/bin/x64/Release/net8.0-windows/WinToPalette.exe" -Destination "$releaseDir/bin/x64/" -Force
-          Copy-Item -Path "WinToPalette/bin/Release/net8.0-windows/WinToPalette.exe" -Destination "$releaseDir/bin/AnyCPU/" -Force
           
           # Copy installer scripts to root
           Copy-Item -Path "Install-WinToPalette.ps1" -Destination "$releaseDir/"
