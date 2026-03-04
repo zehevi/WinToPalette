@@ -67,14 +67,9 @@ jobs:
           # Copy README for reference
           Copy-Item -Path "README.md" -Destination "$releaseDir/README.md"
           
-          # Copy Interception driver installer and libraries from downloaded package
-          if (Test-Path "${{ runner.temp }}/Interception/Interception/command line installer") {
-            Copy-Item -Path "${{ runner.temp }}/Interception/Interception/command line installer" -Destination "$releaseDir/Interception-Driver" -Recurse -Force
-          }
-          
-          # Copy interception.dll library (x64) for runtime use
-          if (Test-Path "${{ runner.temp }}/Interception/Interception/library/x64") {
-            Copy-Item -Path "${{ runner.temp }}/Interception/Interception/library/x64" -Destination "$releaseDir/Interception-Driver/library/x64" -Recurse -Force
+          # Copy entire Interception package structure (installer needs driver files in correct layout)
+          if (Test-Path "${{ runner.temp }}/Interception/Interception") {
+            Copy-Item -Path "${{ runner.temp }}/Interception/Interception" -Destination "$releaseDir/Interception-Driver" -Recurse -Force
           }
 
       - name: Create release ZIP

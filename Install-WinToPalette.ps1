@@ -151,15 +151,34 @@ function Install-Interception {
     $interceptionExe = $null
     foreach ($root in $searchRoots) {
         if (Test-Path $root) {
-            $interceptionExe = Get-ChildItem -Path $root -Recurse -Filter "install-interception.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            $interceptionExe = Get-ChildItem -Path $root -Recurse -File -Filter "install-interception.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($interceptionExe) { break }
         }
     }
 
     if ($interceptionExe) {
-        Unblock-File -Path $interceptionExe.FullName -ErrorAction SilentlyContinue
-        & $interceptionExe.FullName | Out-Null
-        Write-Success "Interception driver installed"
+        Write-Info "Found Interception installer at: $($interceptionExe.DirectoryName)"
+        
+        # The installer must be run from its own directory to find driver files
+        $installerDir = $interceptionExe.DirectoryName
+        $currentDir = Get-Location
+        
+        try {
+            Unblock-File -Path $interceptionExe.FullName -ErrorAction SilentlyContinue
+            
+            # Unblock all files in the installer directory (driver files, catalogs, etc.)
+            Get-ChildItem -Path $installerDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
+            }
+            
+            Set-Location $installerDir
+            & $interceptionExe.FullName /install
+            
+            Write-Success "Interception driver installed"
+        }
+        finally {
+            Set-Location $currentDir
+        }
     }
     else {
         Write-Warning_ "Interception installer not found in package. You may need to install it manually."
@@ -170,19 +189,19 @@ function Ensure-InterceptionDll {
     $appDllPath = Join-Path $InstallPath "interception.dll"
     
     # Check if DLL already exists in app directory
-    if (Test-Path $appDllPath) {
+    if (Test-Path $appDllPath -PathType Leaf) {
         Write-Info "Interception.dll already present in app directory"
         return
     }
     
     # Search paths where DLL might be in the release
     $searchPaths = @(
-        # In extracted release under Interception-Driver
-        "$env:TEMP\WinToPalette-extracted\Interception-Driver\library\x64\interception.dll",
-        # In extracted release under original structure
-        "$env:TEMP\WinToPalette-extracted\interception\Interception_extracted\Interception\library\x64\interception.dll",
-        # Recursive search in extracted folder
-        "$env:TEMP\WinToPalette-extracted"
+        # In Interception-Driver package structure (new layout)
+        "$InstallPath\Interception-Driver\library\x64\interception.dll",
+        # In extracted release
+        "$env:TEMP\WinToPalette-extracted",
+        # In installed location
+        "$InstallPath"
     )
     
     foreach ($searchPath in $searchPaths) {
@@ -192,10 +211,11 @@ function Ensure-InterceptionDll {
             $foundDll = Get-Item -Path $searchPath -ErrorAction SilentlyContinue
         }
         elseif (Test-Path $searchPath -PathType Container) {
-            $foundDll = Get-ChildItem -Path $searchPath -Recurse -Filter "interception.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            # Only match FILES named interception.dll, not directories
+            $foundDll = Get-ChildItem -Path $searchPath -Recurse -File -Filter "interception.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
         }
 
-        if ($foundDll) {
+        if ($foundDll -and -not $foundDll.PSIsContainer) {
             try {
                 Copy-Item -Path $foundDll.FullName -Destination $appDllPath -Force -ErrorAction Stop
                 Unblock-File -Path $appDllPath -ErrorAction SilentlyContinue
