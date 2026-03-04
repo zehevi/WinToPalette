@@ -40,7 +40,10 @@ namespace WinToPalette
                     new FileLogger()
                 );
 
+                bool isInteractive = Environment.UserInteractive && !Console.IsInputRedirected;
+
                 _logger.LogInfo("=== WinToPalette Launcher Started ===");
+                _logger.LogInfo($"Running in interactive mode: {isInteractive}");
 
                 // Check for admin privileges
                 if (!StartupManager.IsElevated())
@@ -55,8 +58,11 @@ namespace WinToPalette
                     else
                     {
                         _logger.LogError("Failed to elevate privileges. Application requires admin rights.");
-                        Console.WriteLine("\nPress any key to exit...");
-                        WaitForKeyPress();
+                        if (isInteractive)
+                        {
+                            Console.WriteLine("\nPress any key to exit...");
+                            WaitForKeyPress();
+                        }
                         return;
                     }
                 }
@@ -71,8 +77,11 @@ namespace WinToPalette
                 if (!_interceptionManager.Initialize())
                 {
                     _logger.LogError("Failed to initialize Interception. Make sure the driver is installed.");
-                    Console.WriteLine("\nPress any key to exit...");
-                    WaitForKeyPress();
+                    if (isInteractive)
+                    {
+                        Console.WriteLine("\nPress any key to exit...");
+                        WaitForKeyPress();
+                    }
                     return;
                 }
 
@@ -106,12 +115,15 @@ namespace WinToPalette
                 StartDeviceChangeWatcher();
 
                 _logger.LogInfo("Waiting for Windows key press...");
+                if (isInteractive)
+                {
+                    Console.WriteLine("\nWinToPalette is running. Press Ctrl+C to exit...");
+                }
 
                 // Start listening for key events
                 await _interceptionManager.StartListeningAsync();
 
                 // Keep the application running
-                Console.WriteLine("\nWinToPalette is running. Press Ctrl+C to exit...");
                 Console.CancelKeyPress += (sender, e) =>
                 {
                     e.Cancel = true;
@@ -124,6 +136,8 @@ namespace WinToPalette
             }
             catch (Exception ex)
             {
+                bool isInteractive = Environment.UserInteractive && !Console.IsInputRedirected;
+                
                 if (_logger != null)
                 {
                     _logger.LogError($"Fatal error: {ex.Message}");
@@ -135,8 +149,11 @@ namespace WinToPalette
                     Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 }
 
-                Console.WriteLine("\nPress any key to exit...");
-                WaitForKeyPress();
+                if (isInteractive)
+                {
+                    Console.WriteLine("\nPress any key to exit...");
+                    WaitForKeyPress();
+                }
             }
             finally
             {

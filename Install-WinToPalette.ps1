@@ -125,6 +125,10 @@ function Extract-Release {
     $result = Expand-Archive -Path $ZipPath -DestinationPath $extractPath -Force -ErrorAction SilentlyContinue
     
     if (Test-Path $extractPath) {
+        Unblock-File -Path $ZipPath -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $extractPath -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
+        }
         Write-Success "Extracted successfully"
         return $extractPath
     }
@@ -135,20 +139,31 @@ function Extract-Release {
 }
 
 function Install-Interception {
+    param([string]$ExtractPath)
+
     Write-Info "Setting up Interception driver..."
-    
-    $interceptionExe = Get-ChildItem -Path "$env:TEMP\WinToPalette-extracted" -Recurse -Filter "install-interception.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    
+
+    $searchRoots = @(
+        $ExtractPath,
+        $InstallPath
+    )
+
+    $interceptionExe = $null
+    foreach ($root in $searchRoots) {
+        if (Test-Path $root) {
+            $interceptionExe = Get-ChildItem -Path $root -Recurse -Filter "install-interception.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($interceptionExe) { break }
+        }
+    }
+
     if ($interceptionExe) {
+        Unblock-File -Path $interceptionExe.FullName -ErrorAction SilentlyContinue
         & $interceptionExe.FullName | Out-Null
         Write-Success "Interception driver installed"
     }
     else {
-        Write-Warning_ "Interception installer not found. You may need to install it manually."
+        Write-Warning_ "Interception installer not found in package. You may need to install it manually."
     }
-    
-    # Also try to locate and copy the interception.dll to the app directory
-    Ensure-InterceptionDll
 }
 
 function Ensure-InterceptionDll {
@@ -171,31 +186,24 @@ function Ensure-InterceptionDll {
     )
     
     foreach ($searchPath in $searchPaths) {
-        if ($searchPath -like "*\*\*") {
-            # This is a specific file path
-            if (Test-Path $searchPath) {
-                try {
-                    Copy-Item -Path $searchPath -Destination $appDllPath -Force -ErrorAction Stop
-                    Write-Success "Copied interception.dll to app directory"
-                    return
-                }
-                catch {
-                    Write-Warning_ "Could not copy DLL from $searchPath`: $_"
-                }
-            }
+        $foundDll = $null
+
+        if (Test-Path $searchPath -PathType Leaf) {
+            $foundDll = Get-Item -Path $searchPath -ErrorAction SilentlyContinue
         }
-        else {
-            # This is a directory - search recursively
-            $found = Get-ChildItem -Path $searchPath -Recurse -Filter "interception.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) {
-                try {
-                    Copy-Item -Path $found.FullName -Destination $appDllPath -Force -ErrorAction Stop
-                    Write-Success "Copied interception.dll to app directory"
-                    return
-                }
-                catch {
-                    Write-Warning_ "Could not copy DLL from $($found.FullName)`: $_"
-                }
+        elseif (Test-Path $searchPath -PathType Container) {
+            $foundDll = Get-ChildItem -Path $searchPath -Recurse -Filter "interception.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+
+        if ($foundDll) {
+            try {
+                Copy-Item -Path $foundDll.FullName -Destination $appDllPath -Force -ErrorAction Stop
+                Unblock-File -Path $appDllPath -ErrorAction SilentlyContinue
+                Write-Success "Copied interception.dll to app directory"
+                return
+            }
+            catch {
+                Write-Warning_ "Could not copy DLL from $($foundDll.FullName)`: $_"
             }
         }
     }
@@ -367,14 +375,18 @@ function Install-Application-Main {
     
     Write-Host ""
     
-    # Install Interception
-    Install-Interception
-    
     # Install application
     Write-Host ""
     if (-not (Install-Application -ExtractPath $extractPath)) {
         exit 1
     }
+
+    # Install Interception
+    Write-Host ""
+    Install-Interception -ExtractPath $extractPath
+
+    # Ensure interception.dll is available in install folder
+    Ensure-InterceptionDll
     
     # Register startup
     Write-Host ""

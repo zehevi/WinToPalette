@@ -36,6 +36,13 @@ jobs:
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "tag=$tag" >> $env:GITHUB_OUTPUT
 
+      - name: Download Interception package
+        run: |
+          $interceptionZip = "${{ runner.temp }}/Interception.zip"
+          $interceptionDir = "${{ runner.temp }}/Interception"
+          Invoke-WebRequest -Uri "https://github.com/oblitum/Interception/releases/download/v1.0.1/Interception.zip" -OutFile $interceptionZip
+          Expand-Archive -Path $interceptionZip -DestinationPath $interceptionDir -Force
+
       - name: Create release directory
         run: |
           mkdir release
@@ -60,14 +67,14 @@ jobs:
           # Copy README for reference
           Copy-Item -Path "README.md" -Destination "$releaseDir/README.md"
           
-          # Copy interception driver installer and libraries if available
-          if (Test-Path "interception/Interception_extracted/Interception/command line installer") {
-            Copy-Item -Path "interception/Interception_extracted/Interception/command line installer" -Destination "$releaseDir/Interception-Driver" -Recurse -Force
+          # Copy Interception driver installer and libraries from downloaded package
+          if (Test-Path "${{ runner.temp }}/Interception/Interception/command line installer") {
+            Copy-Item -Path "${{ runner.temp }}/Interception/Interception/command line installer" -Destination "$releaseDir/Interception-Driver" -Recurse -Force
           }
           
           # Copy interception.dll library (x64) for runtime use
-          if (Test-Path "interception/Interception_extracted/Interception/library/x64") {
-            Copy-Item -Path "interception/Interception_extracted/Interception/library/x64" -Destination "$releaseDir/Interception-Driver/library/x64" -Recurse -Force
+          if (Test-Path "${{ runner.temp }}/Interception/Interception/library/x64") {
+            Copy-Item -Path "${{ runner.temp }}/Interception/Interception/library/x64" -Destination "$releaseDir/Interception-Driver/library/x64" -Recurse -Force
           }
 
       - name: Create release ZIP
