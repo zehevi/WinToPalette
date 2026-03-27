@@ -23,8 +23,9 @@ namespace WinToPalette
         private static PowerToysNotificationService _powerToysNotificationService;
         private static StartupManager _startupManager;
         private static ManagementEventWatcher _deviceChangeWatcher;
-        private static int _deviceChangeVersion;
-        private static DateTime _lastSelfRestartUtc = DateTime.MinValue;
+        private static readonly object _deviceChangeSync = new object();
+        private static DateTime _lastDeviceChangeHandledUtc = DateTime.MinValue;
+        private static CancellationTokenSource _deviceChangeDebounceCts;
         private static DateTime _lastPaletteLaunchUtc = DateTime.MinValue;
         private static readonly object _launchSync = new object();
         private static readonly List<(string label, long ticks)> _timingBuffer = new List<(string, long)>();
@@ -278,6 +279,13 @@ namespace WinToPalette
         {
             try
             {
+                lock (_deviceChangeSync)
+                {
+                    _deviceChangeDebounceCts?.Cancel();
+                    _deviceChangeDebounceCts?.Dispose();
+                    _deviceChangeDebounceCts = null;
+                }
+
                 if (_deviceChangeWatcher != null)
                 {
                     _deviceChangeWatcher.EventArrived -= OnDeviceChanged;
@@ -314,65 +322,43 @@ namespace WinToPalette
                     _ => "Device change detected"
                 };
 
-                _logger?.LogInfo($"{reason}. Requesting interception context recreation...");
-                _interceptionManager.RequestContextRecreate(reason);
+                // Win32_DeviceChangeEvent can be noisy. Coalesce bursts into one context recreation.
+                CancellationTokenSource localCts;
+                lock (_deviceChangeSync)
+                {
+                    if ((DateTime.UtcNow - _lastDeviceChangeHandledUtc).TotalMilliseconds < 250)
+                    {
+                        _logger?.LogDebug($"Ignoring duplicate device change event ({reason})");
+                        return;
+                    }
 
-                ScheduleSelfRestartAfterDeviceChange(reason);
+                    _lastDeviceChangeHandledUtc = DateTime.UtcNow;
+
+                    _deviceChangeDebounceCts?.Cancel();
+                    _deviceChangeDebounceCts?.Dispose();
+                    _deviceChangeDebounceCts = new CancellationTokenSource();
+                    localCts = _deviceChangeDebounceCts;
+                }
+
+                _logger?.LogInfo($"{reason}. Scheduling interception context recreation...");
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(750, localCts.Token);
+                        _logger?.LogInfo("Applying coalesced device-change recovery: recreating interception context");
+                        _interceptionManager.RequestContextRecreate("Coalesced keyboard/device change event");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // A newer device event superseded this request.
+                    }
+                });
             }
             catch (Exception ex)
             {
                 _logger?.LogDebug($"Error handling device change event: {ex.Message}");
-            }
-        }
-
-        private static void ScheduleSelfRestartAfterDeviceChange(string reason)
-        {
-            int version = Interlocked.Increment(ref _deviceChangeVersion);
-
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(1000);
-
-                if (version != _deviceChangeVersion)
-                {
-                    return;
-                }
-
-                if ((DateTime.UtcNow - _lastSelfRestartUtc).TotalSeconds < 10)
-                {
-                    return;
-                }
-
-                _lastSelfRestartUtc = DateTime.UtcNow;
-                RestartSelf($"Device-change fallback restart ({reason})");
-            });
-        }
-
-        private static void RestartSelf(string reason)
-        {
-            try
-            {
-                string executablePath = Process.GetCurrentProcess().MainModule?.FileName;
-                if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
-                {
-                    _logger?.LogWarning("Skipping self-restart: executable path unavailable");
-                    return;
-                }
-
-                _logger?.LogWarning($"{reason}. Restarting process to rebind interception stack...");
-
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = executablePath,
-                    UseShellExecute = true,
-                    Verb = "runas"
-                });
-
-                Environment.Exit(0);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError($"Self-restart failed: {ex.Message}");
             }
         }
 

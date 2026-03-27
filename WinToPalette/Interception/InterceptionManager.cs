@@ -324,6 +324,10 @@ namespace WinToPalette.Interception
 
                 ResetWindowsKeyState();
 
+                // Ask Windows to re-enumerate all keyboard devices before binding the new context.
+                // This releases any stuck USB keyboard state left over from interception filter churn.
+                TriggerPnpKeyboardRescan();
+
                 if (!CreateAndConfigureContext())
                 {
                     _logger.LogError("Context recreation failed");
@@ -338,6 +342,39 @@ namespace WinToPalette.Interception
             {
                 _logger.LogError($"Failed to recreate context: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Triggers a Windows PnP device re-scan for keyboard class devices.
+        /// This forces re-enumeration of USB keyboards that may have been left in a stuck
+        /// state by interception filter churn during process restarts or context recreation.
+        /// </summary>
+        private void TriggerPnpKeyboardRescan()
+        {
+            try
+            {
+                _logger.LogInfo("Triggering PnP keyboard device rescan...");
+
+                // pnputil /scan-devices is the safest way to force Windows to re-enumerate
+                // all devices without needing to know specific instance IDs.
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "pnputil.exe",
+                    Arguments = "/scan-devices",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit(3000);
+                _logger.LogInfo("PnP keyboard device rescan complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug($"PnP rescan skipped: {ex.Message}");
             }
         }
 
